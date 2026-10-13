@@ -1,0 +1,1122 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Water Cycle – IIT Bombay LULC Dashboard</title>
+<meta name="description" content="Interactive Land Use Land Cover (LULC) dashboard for IIT Bombay campus: water cycle simulation, live map and statistics.">
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+
+<style>
+/* ══════════════════════════════════════════════
+   DESIGN TOKENS
+══════════════════════════════════════════════ */
+:root {
+  --bg:       #080d15;
+  --surface:  #0e1621;
+  --panel:    #121c28;
+  --card:     #16212f;
+  --border:   #1f2f41;
+  --border2:  #243545;
+  --ink:      #e8eef5;
+  --mute:     #6b8299;
+  --mute2:    #98a7b8;
+  --accent:   #38bdf8;
+  --accent2:  #0ea5e9;
+  --green:    #34d399;
+  --amber:    #fbbf24;
+  --red:      #f87171;
+  --grad1:    linear-gradient(135deg, #0f2942 0%, #071527 100%);
+  --glow:     0 0 24px rgba(56,189,248,.18);
+  --r:        12px;
+  --r-sm:     8px;
+  --shadow:   0 4px 24px rgba(0,0,0,.45);
+  font-size: 14px;
+}
+
+/* ── Reset ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Inter', system-ui, sans-serif;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ══════════════════════════════════════════════
+   HEADER
+══════════════════════════════════════════════ */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 22px;
+  border-bottom: 1px solid var(--border);
+  background: var(--grad1);
+  flex-shrink: 0;
+  gap: 12px;
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand-logo {
+  width: 38px; height: 38px; border-radius: 10px;
+  background: linear-gradient(135deg, #1e3a5f, #38bdf8);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; flex-shrink: 0;
+}
+.brand-text h1 {
+  font-size: 15px; font-weight: 800; letter-spacing: .04em;
+  text-transform: uppercase; line-height: 1.1;
+}
+.brand-text p {
+  font-size: 10.5px; color: var(--mute2); font-weight: 500;
+  letter-spacing: .03em;
+}
+.header-right {
+  display: flex; align-items: center; gap: 10px;
+}
+#statusDot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--mute); transition: background .3s;
+  box-shadow: 0 0 0 0 rgba(52,211,153,0);
+}
+#statusDot.alive {
+  background: var(--green);
+  animation: pulse-dot 2s infinite;
+}
+#statusDot.error { background: var(--red); }
+@keyframes pulse-dot {
+  0%,100% { box-shadow: 0 0 0 0 rgba(52,211,153,.6); }
+  50%      { box-shadow: 0 0 0 5px rgba(52,211,153,0); }
+}
+#statusText {
+  font-size: 11px; color: var(--mute2); font-weight: 500;
+}
+.btn {
+  font: 600 12px 'Inter', sans-serif;
+  border: 0; border-radius: var(--r-sm);
+  padding: 8px 14px; cursor: pointer; transition: all .2s;
+  display: flex; align-items: center; gap: 6px;
+}
+.btn-primary {
+  background: linear-gradient(135deg, #0ea5e9, #0284c7);
+  color: #fff; box-shadow: 0 2px 12px rgba(14,165,233,.35);
+}
+.btn-primary:hover { filter: brightness(1.12); transform: translateY(-1px); }
+.btn-primary:active { transform: translateY(0); }
+.btn-ghost {
+  background: var(--card); color: var(--mute2);
+  border: 1px solid var(--border2);
+}
+.btn-ghost:hover { background: var(--panel); color: var(--ink); }
+
+/* ══════════════════════════════════════════════
+   MAIN LAYOUT
+══════════════════════════════════════════════ */
+main {
+  flex: 1; min-height: 0;
+  display: grid;
+  gap: 10px; padding: 10px;
+  grid-template-columns: 280px 1fr 280px;
+  grid-template-rows: 1fr 220px;
+  grid-template-areas:
+    "sidebar  map      output"
+    "sidebar  chart    output";
+}
+
+/* ══════════════════════════════════════════════
+   SECTIONS / PANELS
+══════════════════════════════════════════════ */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  display: flex;
+  flex-direction: column;
+  min-height: 0; min-width: 0;
+  overflow: hidden;
+}
+.panel-head {
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px;
+  flex-shrink: 0;
+}
+.panel-icon {
+  width: 24px; height: 24px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; flex-shrink: 0;
+}
+.panel-title {
+  font-size: 11px; font-weight: 700;
+  letter-spacing: .07em; text-transform: uppercase;
+  color: var(--mute2);
+}
+.panel-body { flex: 1; overflow: auto; padding: 12px 14px; }
+.panel-body::-webkit-scrollbar { width: 4px; }
+.panel-body::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* ══════════════════════════════════════════════
+   SIDEBAR  (left column)
+══════════════════════════════════════════════ */
+#sidebar { grid-area: sidebar; }
+
+.rainfall-row {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 14px; background: var(--card);
+  border: 1px solid var(--border2); border-radius: var(--r-sm);
+  padding: 8px 10px;
+}
+.rainfall-row label {
+  font-size: 11px; font-weight: 600; color: var(--mute2);
+  white-space: nowrap; flex-shrink: 0;
+}
+.rainfall-row input[type="number"] {
+  flex: 1; min-width: 0;
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: 6px; color: var(--ink);
+  font: 700 14px 'Inter', sans-serif;
+  padding: 4px 6px; text-align: right;
+}
+.rainfall-row input:focus { outline: 2px solid var(--accent); }
+
+/* ── Section label ── */
+.sub-label {
+  font-size: 10px; font-weight: 700;
+  letter-spacing: .08em; text-transform: uppercase;
+  color: var(--mute); margin-bottom: 8px;
+}
+
+/* ── Bar stack ── */
+#bar-stack {
+  display: flex; height: 7px; border-radius: 4px;
+  overflow: hidden; background: var(--surface);
+  margin-bottom: 12px; gap: 1px;
+}
+#bar-stack span { display: block; transition: width .2s ease; }
+
+/* ── Sliders ── */
+.slider-item {
+  margin-bottom: 10px;
+}
+.slider-head {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 3px;
+}
+.slider-label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 600; color: var(--ink);
+}
+.slider-swatch {
+  width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0;
+}
+.slider-val {
+  font-size: 12px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+input[type="range"] {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 4px; border-radius: 2px;
+  outline: none; cursor: pointer;
+  background: var(--border2);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--accent); border: 2px solid var(--bg);
+  box-shadow: 0 0 6px rgba(56,189,248,.5);
+  transition: transform .15s;
+}
+input[type="range"]:hover::-webkit-slider-thumb { transform: scale(1.2); }
+
+.total-row {
+  display: flex; justify-content: space-between;
+  padding: 8px 10px; border-radius: var(--r-sm);
+  background: var(--card); border: 1px solid var(--border2);
+  font-size: 12px; font-weight: 700; margin-bottom: 10px;
+}
+#total-val { color: var(--accent); }
+
+.run-btn {
+  width: 100%; font-size: 13px; font-weight: 700;
+  padding: 11px; border-radius: var(--r-sm);
+  border: 0; cursor: pointer; transition: all .2s;
+  background: linear-gradient(135deg, #0ea5e9, #0284c7);
+  color: #fff; letter-spacing: .03em;
+  box-shadow: 0 2px 14px rgba(14,165,233,.35);
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.run-btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.run-btn:active { transform: translateY(0); }
+.run-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+#calc-status {
+  margin-top: 8px; font-size: 11px; color: var(--mute2);
+  min-height: 16px; text-align: center; display: flex;
+  align-items: center; justify-content: center; gap: 6px;
+}
+.spinner {
+  width: 12px; height: 12px; border: 2px solid var(--border2);
+  border-top-color: var(--accent); border-radius: 50%;
+  animation: spin .6s linear infinite; flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Stats table ── */
+.stats-table {
+  width: 100%; border-collapse: collapse;
+  font-size: 11px;
+}
+.stats-table th {
+  text-align: left; color: var(--mute);
+  font-weight: 700; letter-spacing: .04em;
+  padding: 3px 6px; font-size: 10px;
+  text-transform: uppercase;
+}
+.stats-table td { padding: 5px 6px; }
+.stats-table tr:hover td { background: var(--card); }
+.stats-table .area-bar-wrap {
+  width: 60px; background: var(--surface);
+  border-radius: 3px; overflow: hidden; height: 5px;
+}
+.area-bar { height: 100%; border-radius: 3px; }
+
+/* ══════════════════════════════════════════════
+   MAP  (centre top)
+══════════════════════════════════════════════ */
+#map-panel { grid-area: map; }
+#leaflet-map { flex: 1; min-height: 0; border-radius: 0 0 var(--r) var(--r); }
+.leaflet-container { background: #080d15; }
+.map-tabs {
+  display: flex; gap: 4px; padding: 6px 10px 0;
+  border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.map-tab {
+  font: 600 11px 'Inter'; padding: 5px 10px; border-radius: 6px 6px 0 0;
+  border: 1px solid transparent; cursor: pointer;
+  background: transparent; color: var(--mute2); transition: all .15s;
+}
+.map-tab.active {
+  background: var(--card); border-color: var(--border2);
+  border-bottom-color: var(--card); color: var(--accent);
+}
+.map-tab:hover:not(.active) { color: var(--ink); }
+
+/* Leaflet popup override */
+.leaflet-popup-content-wrapper {
+  background: var(--card); color: var(--ink);
+  border: 1px solid var(--border2); border-radius: var(--r-sm);
+  box-shadow: var(--shadow); font-family: 'Inter', sans-serif;
+  font-size: 12px; padding: 10px 14px;
+}
+.leaflet-popup-tip { background: var(--card); }
+.popup-class {
+  font-weight: 700; font-size: 13px; margin-bottom: 4px;
+  display: flex; align-items: center; gap: 6px;
+}
+.popup-swatch {
+  width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0;
+}
+.popup-row { display: flex; justify-content: space-between; gap: 16px; }
+.popup-val { font-weight: 700; color: var(--accent); }
+
+/* ══════════════════════════════════════════════
+   OUTPUT CARDS  (right column)
+══════════════════════════════════════════════ */
+#output { grid-area: output; }
+.out-cards {
+  display: grid;
+  grid-template-rows: 1fr 1fr 1fr 1fr;
+  gap: 8px; height: 100%;
+}
+.out-card {
+  background: var(--card); border: 1px solid var(--border2);
+  border-radius: var(--r-sm); padding: 10px 12px;
+  display: flex; align-items: center; gap: 12px;
+  transition: border-color .2s;
+}
+.out-card:hover { border-color: var(--border); }
+.out-card-icon {
+  font-size: 20px; width: 36px; height: 36px; flex-shrink: 0;
+  border-radius: 8px; display: flex; align-items: center;
+  justify-content: center;
+}
+.out-card-body { flex: 1; min-width: 0; }
+.out-card-label {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--mute2);
+}
+.out-card-val {
+  font-size: 26px; font-weight: 800;
+  font-variant-numeric: tabular-nums; line-height: 1.1;
+  transition: color .3s;
+}
+.out-card-unit { font-size: 12px; color: var(--mute2); margin-left: 3px; }
+.out-card-sub {
+  font-size: 10px; color: var(--mute); margin-top: 2px;
+}
+/* Water cycle fractions */
+.frac-bar {
+  height: 3px; background: var(--surface); border-radius: 2px;
+  overflow: hidden; margin-top: 5px;
+}
+.frac-fill { height: 100%; border-radius: 2px; transition: width .5s ease; }
+
+/* ══════════════════════════════════════════════
+   CHART  (centre bottom)
+══════════════════════════════════════════════ */
+#chart-panel { grid-area: chart; }
+#chart-wrap { flex: 1; min-height: 0; padding: 10px 14px 14px; position: relative; }
+.chart-tabs {
+  display: flex; gap: 4px; padding: 0; flex-shrink: 0;
+}
+.chart-tab {
+  font: 600 10.5px 'Inter'; padding: 4px 10px;
+  border-radius: 6px; border: 1px solid var(--border2);
+  cursor: pointer; background: transparent; color: var(--mute2); transition: all .15s;
+}
+.chart-tab.active { background: var(--card); color: var(--accent); }
+.chart-tab:hover:not(.active) { color: var(--ink); }
+
+/* ══════════════════════════════════════════════
+   RESPONSIVE
+══════════════════════════════════════════════ */
+@media (max-width: 1100px) {
+  main {
+    grid-template-columns: 260px 1fr;
+    grid-template-rows: 1fr auto auto;
+    grid-template-areas:
+      "sidebar map"
+      "output  output"
+      "chart   chart";
+    overflow: auto;
+  }
+  html, body { height: auto; overflow: auto; }
+  #leaflet-map { min-height: 280px; }
+  .out-cards { grid-template-rows: auto; grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 700px) {
+  main {
+    grid-template-columns: 1fr;
+    grid-template-areas: "map" "sidebar" "output" "chart";
+    padding: 8px;
+  }
+  header { padding: 10px 14px; }
+  .brand-text p { display: none; }
+  .out-cards { grid-template-columns: 1fr; }
+  #leaflet-map { min-height: 250px; }
+}
+
+/* ══════════════════════════════════════════════
+   TOOLTIP / LEGEND  overlay
+══════════════════════════════════════════════ */
+.map-legend {
+  position: absolute; bottom: 10px; left: 10px; z-index: 500;
+  background: rgba(12,22,35,.88); backdrop-filter: blur(8px);
+  border: 1px solid var(--border2); border-radius: var(--r-sm);
+  padding: 8px 10px; font-size: 11px;
+  pointer-events: none; max-width: 160px;
+}
+.legend-row {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 4px;
+}
+.legend-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+.legend-label { color: var(--ink); font-weight: 500; }
+
+/* shimmer for loading state */
+@keyframes shimmer {
+  0%   { opacity: .4; }
+  50%  { opacity: .85; }
+  100% { opacity: .4; }
+}
+.shimmer { animation: shimmer 1.5s ease-in-out infinite; }
+
+/* number roll animation */
+@keyframes rollIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.roll-in { animation: rollIn .35s ease forwards; }
+
+</style>
+</head>
+<body>
+
+<!-- ════════════════════ HEADER ════════════════════ -->
+<header>
+  <div class="brand">
+    <div class="brand-logo">🌊</div>
+    <div class="brand-text">
+      <h1>IIT Bombay — Water Cycle Dashboard</h1>
+      <p>Land Use &amp; Land Cover · Hydrological Analysis</p>
+    </div>
+  </div>
+  <div class="header-right">
+    <div id="statusDot" title="Backend status"></div>
+    <span id="statusText">Connecting…</span>
+    <button class="btn btn-ghost" id="themeBtn" title="Toggle theme">🌙</button>
+  </div>
+</header>
+
+<!-- ════════════════════ MAIN ════════════════════ -->
+<main>
+
+  <!-- ── LEFT SIDEBAR ── -->
+  <div class="panel" id="sidebar">
+    <div class="panel-head">
+      <div class="panel-icon" style="background:#1a3a5c;">⚙️</div>
+      <span class="panel-title">Controls &amp; Land Cover</span>
+    </div>
+    <div class="panel-body" style="display:flex;flex-direction:column;gap:0;">
+
+      <!-- Rainfall input -->
+      <div class="sub-label" style="margin-bottom:6px;">Annual Rainfall</div>
+      <div class="rainfall-row">
+        <label for="rainfallInput">Rainfall</label>
+        <input type="number" id="rainfallInput" value="2200" min="0" max="10000" step="50">
+        <span style="font-size:11px;color:var(--mute2);white-space:nowrap;">mm/yr</span>
+      </div>
+
+      <!-- Bar stack -->
+      <div class="sub-label">LULC Composition</div>
+      <div id="bar-stack"></div>
+
+      <!-- Sliders -->
+      <div id="sliders-container"></div>
+
+      <!-- Total -->
+      <div class="total-row">
+        <span>Total</span>
+        <span id="total-val">100%</span>
+      </div>
+
+      <!-- Run button -->
+      <button class="run-btn" id="runBtn">
+        <span>▶</span> Calculate Water Cycle
+      </button>
+      <div id="calc-status"></div>
+
+      <!-- Stats table -->
+      <div class="sub-label" style="margin-top:14px;">Area by Class (from Shapefile)</div>
+      <table class="stats-table">
+        <thead>
+          <tr>
+            <th>Class</th>
+            <th>Area (m²)</th>
+            <th>%</th>
+            <th>Bar</th>
+          </tr>
+        </thead>
+        <tbody id="stats-tbody"></tbody>
+      </table>
+
+    </div>
+  </div>
+
+  <!-- ── MAP ── -->
+  <div class="panel" id="map-panel">
+    <div class="panel-head" style="flex-wrap:wrap;gap:6px;">
+      <div class="panel-icon" style="background:#1c3a1a;">🗺️</div>
+      <span class="panel-title">Interactive LULC Map</span>
+      <div class="chart-tabs" style="margin-left:auto;" id="map-tabs">
+        <button class="chart-tab active" data-layer="lulc">LULC</button>
+        <button class="chart-tab" data-layer="buildings">Buildings</button>
+        <button class="chart-tab" data-layer="satellite">Satellite</button>
+      </div>
+    </div>
+    <div id="leaflet-map"></div>
+    <!-- Legend injected dynamically -->
+  </div>
+
+  <!-- ── OUTPUT ── -->
+  <div class="panel" id="output">
+    <div class="panel-head">
+      <div class="panel-icon" style="background:#1a2e3a;">📊</div>
+      <span class="panel-title">Water Cycle Output</span>
+    </div>
+    <div class="panel-body" style="padding:10px;">
+      <div class="out-cards">
+
+        <div class="out-card" id="oc-rainfall">
+          <div class="out-card-icon" style="background:#1a2b40;">🌧️</div>
+          <div class="out-card-body">
+            <div class="out-card-label">Total Rainfall</div>
+            <div class="out-card-val" id="o-rainfall">—<span class="out-card-unit">mm</span></div>
+            <div class="frac-bar"><div class="frac-fill" id="f-rainfall" style="background:#38bdf8;width:0%"></div></div>
+            <div class="out-card-sub">Annual input to campus</div>
+          </div>
+        </div>
+
+        <div class="out-card" id="oc-runoff">
+          <div class="out-card-icon" style="background:#1a2040;">💧</div>
+          <div class="out-card-body">
+            <div class="out-card-label">Surface Runoff</div>
+            <div class="out-card-val" id="o-runoff">—<span class="out-card-unit">mm</span></div>
+            <div class="frac-bar"><div class="frac-fill" id="f-runoff" style="background:#818cf8;width:0%"></div></div>
+            <div class="out-card-sub" id="sub-runoff">—</div>
+          </div>
+        </div>
+
+        <div class="out-card" id="oc-et">
+          <div class="out-card-icon" style="background:#1a3020;">🌿</div>
+          <div class="out-card-body">
+            <div class="out-card-label">Evapotranspiration</div>
+            <div class="out-card-val" id="o-evapotranspiration">—<span class="out-card-unit">mm</span></div>
+            <div class="frac-bar"><div class="frac-fill" id="f-et" style="background:#34d399;width:0%"></div></div>
+            <div class="out-card-sub" id="sub-et">—</div>
+          </div>
+        </div>
+
+        <div class="out-card" id="oc-inf">
+          <div class="out-card-icon" style="background:#2a1a10;">🏔️</div>
+          <div class="out-card-body">
+            <div class="out-card-label">Infiltration / Recharge</div>
+            <div class="out-card-val" id="o-infiltration">—<span class="out-card-unit">mm</span></div>
+            <div class="frac-bar"><div class="frac-fill" id="f-inf" style="background:#fbbf24;width:0%"></div></div>
+            <div class="out-card-sub" id="sub-inf">—</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CHART ── -->
+  <div class="panel" id="chart-panel">
+    <div class="panel-head" style="flex-wrap:wrap;gap:6px;">
+      <div class="panel-icon" style="background:#22183a;">📈</div>
+      <span class="panel-title">Analysis Charts</span>
+      <div class="chart-tabs" style="margin-left:auto;" id="chart-tabs">
+        <button class="chart-tab active" data-chart="donut">LULC Share</button>
+        <button class="chart-tab" data-chart="water">Water Balance</button>
+        <button class="chart-tab" data-chart="breakdown">Per-Class</button>
+      </div>
+    </div>
+    <div id="chart-wrap">
+      <canvas id="main-chart"></canvas>
+    </div>
+  </div>
+
+</main>
+
+<!-- ════════════════════ SCRIPTS ════════════════════ -->
+<script>
+/* ── Config ──────────────────────────────────────── */
+const API = "http://localhost:5050";
+
+/* ── LULC class definitions (keys match LULC_NAME in shapefile) ── */
+const CLASSES = [
+  { key:"WATER",      label:"Water",      color:"#1f78b4", defaultPct:18.95 },
+  { key:"TREE COVER", label:"Tree Cover", color:"#2e7d4f", defaultPct:20.10 },
+  { key:"SHRUB",      label:"Shrub",      color:"#7cb342", defaultPct:55.56 },
+  { key:"BUILTUP",    label:"Built-up",   color:"#6b7785", defaultPct:1.04  },
+  { key:"WASTELAND",  label:"Wasteland",  color:"#c97c3a", defaultPct:1.18  },
+  { key:"MANMADE",    label:"Manmade",    color:"#e65100", defaultPct:0.84  },
+  { key:"12M EOAD",   label:"12M Road",   color:"#546e7a", defaultPct:0.77  },
+  { key:"6M EOAD",    label:"6M Road",    color:"#78909c", defaultPct:1.56  },
+];
+
+/* Normalise default pcts to exactly 100 */
+(function normPcts(){
+  const s = CLASSES.reduce((a,c)=>a+c.defaultPct,0);
+  CLASSES.forEach(c=>c.defaultPct = +(c.defaultPct/s*100).toFixed(2));
+})();
+
+let vals = CLASSES.map(c => c.defaultPct);
+let statsData = null;   // from /api/lulc/stats
+let lastResult = null;  // from /api/run
+let geoLayer = null;    // leaflet GeoJSON layer
+let lMap = null;        // leaflet map instance
+let mainChart = null;   // chart.js instance
+let chartMode = "donut";
+let mapLayer = "lulc";
+
+/* ── Backend health check ──────────────────────── */
+async function checkBackend() {
+  try {
+    const r = await fetch(`${API}/api/campus`, {signal: AbortSignal.timeout(3000)});
+    if (r.ok) setStatus("alive", "Backend connected");
+    else setStatus("error", "Backend error");
+  } catch {
+    setStatus("error", "Backend offline – run backend/app.py");
+  }
+}
+function setStatus(s, msg) {
+  document.getElementById("statusDot").className = s;
+  document.getElementById("statusText").textContent = msg;
+}
+
+/* ── Build sliders ──────────────────────────────── */
+const slidersContainer = document.getElementById("sliders-container");
+CLASSES.forEach((cls, i) => {
+  const d = document.createElement("div");
+  d.className = "slider-item";
+  d.innerHTML = `
+    <div class="slider-head">
+      <div class="slider-label">
+        <div class="slider-swatch" style="background:${cls.color}"></div>
+        ${cls.label}
+      </div>
+      <span class="slider-val" id="sv${i}" style="color:${cls.color}">${vals[i].toFixed(1)}%</span>
+    </div>
+    <input type="range" min="0" max="100" step="0.1"
+           id="sl${i}" value="${vals[i]}" style="accent-color:${cls.color}">
+  `;
+  slidersContainer.appendChild(d);
+  d.querySelector("input").addEventListener("input", e => rebalance(i, +e.target.value));
+});
+
+/* ── Rebalance sliders to sum=100 ──────────────── */
+function rebalance(i, nv) {
+  const rest = 100 - nv;
+  const others = vals.map((_,k)=>k).filter(k=>k!==i);
+  const osum = others.reduce((a,k)=>a+vals[k], 0);
+  const raw = others.map(k => osum ? vals[k]/osum*rest : rest/others.length);
+  const fl = raw.map(Math.floor);
+  let left = rest - fl.reduce((a,b)=>a+b, 0);
+  raw.map((r,j)=>[r - fl[j], j])
+     .sort((a,b)=>b[0]-a[0])
+     .forEach(([,j], n) => { if (n < left) fl[j]++; });
+  vals[i] = nv;
+  others.forEach((k,j) => vals[k] = fl[j]);
+  renderSliders();
+  if (mainChart && chartMode === "donut") updateChart();
+}
+
+function renderSliders() {
+  CLASSES.forEach((_, i) => {
+    const inp = document.getElementById("sl"+i);
+    const sp  = document.getElementById("sv"+i);
+    if (inp) inp.value = vals[i];
+    if (sp)  sp.textContent = vals[i].toFixed(1) + "%";
+  });
+  const total = vals.reduce((a,b)=>a+b, 0);
+  document.getElementById("total-val").textContent = total.toFixed(1) + "%";
+
+  // Bar stack
+  const bar = document.getElementById("bar-stack");
+  bar.innerHTML = vals.map((v,i)=>
+    `<span style="width:${v}%;background:${CLASSES[i].color};transition:width .2s"></span>`
+  ).join("");
+}
+renderSliders();
+
+/* ── Load stats from backend ───────────────────── */
+async function loadStats() {
+  try {
+    const r = await fetch(`${API}/api/lulc/stats`);
+    statsData = await r.json();
+    renderStatsTable(statsData);
+    // Update slider vals from shapefile percentages (key match by CLASS name)
+    const pctMap = {};
+    statsData.classes.forEach(c => { pctMap[c.CLASS.toUpperCase()] = c.pct; });
+    CLASSES.forEach((cls, i) => {
+      if (pctMap[cls.key] != null) vals[i] = pctMap[cls.key];
+    });
+    // Normalise
+    const s = vals.reduce((a,b)=>a+b, 0);
+    vals = vals.map(v => +(v/s*100).toFixed(2));
+    renderSliders();
+    updateChart();
+  } catch {
+    // Backend offline – use defaults
+    renderStatsTable(null);
+  }
+}
+
+function renderStatsTable(data) {
+  const tb = document.getElementById("stats-tbody");
+  const rows = data
+    ? data.classes
+    : CLASSES.map((c,i) => ({ CLASS: c.key, color: c.color, area_m2: 0, pct: vals[i] }));
+  const maxArea = data ? Math.max(...data.classes.map(c => c.area_m2)) : 1;
+  tb.innerHTML = rows.map(row => `
+    <tr>
+      <td><span style="display:inline-flex;align-items:center;gap:4px;">
+        <span style="width:8px;height:8px;border-radius:2px;background:${row.color||'#888'};display:inline-block"></span>
+        ${row.CLASS}
+      </span></td>
+      <td style="color:var(--mute2);font-variant-numeric:tabular-nums">${data ? row.area_m2.toLocaleString() : '–'}</td>
+      <td style="font-weight:700;color:var(--accent)">${row.pct.toFixed(1)}%</td>
+      <td><div class="area-bar-wrap"><div class="area-bar" style="width:${data?(row.area_m2/maxArea*100).toFixed(1):row.pct}%;background:${row.color||'#888'}"></div></div></td>
+    </tr>
+  `).join("");
+}
+
+/* ── Leaflet Map ───────────────────────────────── */
+function initMap() {
+  lMap = L.map("leaflet-map", {
+    zoomControl: true,
+    attributionControl: false,
+    preferCanvas: true,
+  });
+
+  // Dark base tile
+  const darkTile = L.tileLayer(
+    "https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png",
+    { maxZoom: 20, subdomains: "abcd" }
+  );
+  const satTile = L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    { maxZoom: 20 }
+  );
+
+  lMap.addLayer(darkTile);
+  lMap._tileLayers = { lulc: darkTile, buildings: darkTile, satellite: satTile };
+  lMap._currentBase = "lulc";
+
+  // Default IIT Bombay view
+  lMap.setView([19.1320, 72.9104], 14);
+
+  loadGeoJSON();
+}
+
+async function loadGeoJSON() {
+  try {
+    const r = await fetch(`${API}/api/lulc/geojson`);
+    const geojson = await r.json();
+
+    geoLayer = L.geoJSON(geojson, {
+      style: feature => ({
+        fillColor: feature.properties.color || "#888",
+        fillOpacity: 0.75,
+        color: "#ffffff",
+        weight: 0.5,
+        opacity: 0.3,
+      }),
+      onEachFeature: (feature, layer) => {
+        const p = feature.properties;
+        layer.on("mouseover", function(e) {
+          this.setStyle({ fillOpacity: 0.92, weight: 1.5, color: "#fff", opacity: 0.8 });
+        });
+        layer.on("mouseout", function() {
+          geoLayer.resetStyle(this);
+        });
+        layer.bindPopup(() => `
+          <div class="popup-class">
+            <div class="popup-swatch" style="background:${p.color}"></div>
+            ${p.CLASS}
+          </div>
+          <div class="popup-row">
+            <span>Area</span><span class="popup-val">${(p.Area||0).toLocaleString()} m²</span>
+          </div>
+          ${p.Floor > 0 ? `<div class="popup-row"><span>Floors</span><span class="popup-val">${p.Floor}</span></div>` : ""}
+        `, { maxWidth: 200 });
+      }
+    }).addTo(lMap);
+
+    // Fit bounds
+    lMap.fitBounds(geoLayer.getBounds(), { padding: [20, 20] });
+    renderMapLegend();
+  } catch {
+    // backend offline – show placeholder
+    document.getElementById("leaflet-map").insertAdjacentHTML(
+      "beforeend",
+      `<div style="position:absolute;inset:0;display:grid;place-items:center;color:var(--mute);z-index:1000;pointer-events:none;">
+        <div style="text-align:center">
+          <div style="font-size:28px;margin-bottom:8px">🗺️</div>
+          <div>Start backend to load map</div>
+          <div style="font-size:11px;color:var(--mute);margin-top:4px">py backend/app.py</div>
+        </div>
+       </div>`
+    );
+  }
+}
+
+function renderMapLegend() {
+  const wrap = document.getElementById("map-panel");
+  const old = wrap.querySelector(".map-legend");
+  if (old) old.remove();
+  const leg = document.createElement("div");
+  leg.className = "map-legend";
+  leg.style.position = "relative";  // re-use class but inline placement
+  // inject into leaflet-map as overlay
+  const mapDiv = document.getElementById("leaflet-map");
+  const overlay = document.createElement("div");
+  overlay.style.cssText =
+    "position:absolute;bottom:10px;left:10px;z-index:500;background:rgba(12,22,35,.88);" +
+    "backdrop-filter:blur(8px);border:1px solid var(--border2);border-radius:8px;" +
+    "padding:8px 10px;font-size:11px;pointer-events:none;";
+  overlay.innerHTML = CLASSES.map(c =>
+    `<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
+       <div style="width:10px;height:10px;border-radius:2px;background:${c.color};flex-shrink:0"></div>
+       <span style="color:#e8eef5">${c.label}</span>
+     </div>`
+  ).join("");
+  mapDiv.style.position = "relative";
+  mapDiv.appendChild(overlay);
+}
+
+/* Map layer tabs */
+document.getElementById("map-tabs").addEventListener("click", e => {
+  const btn = e.target.closest("[data-layer]");
+  if (!btn) return;
+  mapLayer = btn.dataset.layer;
+  document.querySelectorAll("#map-tabs .chart-tab").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+
+  // Toggle layers
+  if (!lMap) return;
+  const { lulc, satellite } = lMap._tileLayers;
+  if (mapLayer === "satellite") {
+    lMap.removeLayer(lulc); lMap.addLayer(satellite);
+  } else {
+    lMap.removeLayer(satellite); lMap.addLayer(lulc);
+  }
+
+  // Show/hide GeoJSON for 'buildings' mode
+  if (geoLayer) {
+    if (mapLayer === "buildings") {
+      geoLayer.setStyle(f => {
+        const floors = f.properties.Floor || 0;
+        const alpha = floors > 0 ? Math.min(0.9, 0.3 + floors * 0.07) : 0.15;
+        const c = floors > 0 ? "#e65100" : "#6b7785";
+        return { fillColor: c, fillOpacity: alpha, color: "#fff", weight: 0.4, opacity: 0.3 };
+      });
+    } else {
+      geoLayer.setStyle(f => ({
+        fillColor: f.properties.color || "#888",
+        fillOpacity: 0.75, color: "#fff", weight: 0.5, opacity: 0.3,
+      }));
+    }
+  }
+});
+
+/* ── Chart.js ──────────────────────────────────── */
+function initChart() {
+  const canvas = document.getElementById("main-chart");
+  mainChart = new Chart(canvas, {
+    type: "doughnut",
+    data: {
+      labels: CLASSES.map(c => c.label),
+      datasets: [{
+        data: vals,
+        backgroundColor: CLASSES.map(c => c.color + "cc"),
+        borderColor: CLASSES.map(c => c.color),
+        borderWidth: 1.5,
+        hoverOffset: 6,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: "right",
+          labels: { color: "#98a7b8", font: { family: "Inter", size: 11 }, boxWidth: 10, padding: 8 }
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.label}: ${Number(ctx.raw).toFixed(1)}%`
+          }
+        }
+      }
+    }
+  });
+}
+
+function updateChart() {
+  if (!mainChart) return;
+  if (chartMode === "donut") {
+    renderDonutChart();
+  } else if (chartMode === "water" && lastResult) {
+    renderWaterChart();
+  } else if (chartMode === "breakdown" && lastResult) {
+    renderBreakdownChart();
+  }
+}
+
+function renderDonutChart() {
+  mainChart.config.type = "doughnut";
+  mainChart.data.labels = CLASSES.map(c => c.label);
+  mainChart.data.datasets = [{
+    data: vals,
+    backgroundColor: CLASSES.map(c => c.color + "cc"),
+    borderColor: CLASSES.map(c => c.color),
+    borderWidth: 1.5, hoverOffset: 6,
+  }];
+  mainChart.options.scales = {};
+  mainChart.options.plugins.legend.display = true;
+  mainChart.update("active");
+}
+
+function renderWaterChart() {
+  if (!lastResult) return;
+  const { rainfall, runoff, infiltration, evapotranspiration } = lastResult;
+  mainChart.config.type = "bar";
+  mainChart.data.labels = ["Rainfall", "Runoff", "Infiltration", "Evapotranspiration"];
+  mainChart.data.datasets = [{
+    label: "mm/yr",
+    data: [rainfall, runoff, infiltration, evapotranspiration],
+    backgroundColor: ["#38bdf8cc","#818cf8cc","#fbbf24cc","#34d399cc"],
+    borderColor: ["#38bdf8","#818cf8","#fbbf24","#34d399"],
+    borderWidth: 1.5, borderRadius: 6,
+  }];
+  mainChart.options.scales = {
+    x: { ticks: { color: "#98a7b8", font: { family: "Inter", size: 11 } },
+         grid: { color: "#1f2f41" } },
+    y: { ticks: { color: "#98a7b8", font: { family: "Inter", size: 11 } },
+         grid: { color: "#1f2f41" },
+         title: { display: true, text: "mm/year", color: "#6b8299", font: { size: 10 } } }
+  };
+  mainChart.options.plugins.legend.display = false;
+  mainChart.update("active");
+}
+
+function renderBreakdownChart() {
+  if (!lastResult || !lastResult.breakdown) return;
+  const bd = lastResult.breakdown;
+  mainChart.config.type = "bar";
+  mainChart.data.labels = bd.map(b => b.class);
+  mainChart.data.datasets = [
+    {
+      label: "Runoff fraction",
+      data: bd.map(b => +(b.runoff_frac * 100).toFixed(1)),
+      backgroundColor: "#818cf8cc",
+      borderColor: "#818cf8",
+      borderWidth: 1.5, borderRadius: 4,
+    },
+    {
+      label: "ET fraction",
+      data: bd.map(b => +(b.et_frac * 100).toFixed(1)),
+      backgroundColor: "#34d399cc",
+      borderColor: "#34d399",
+      borderWidth: 1.5, borderRadius: 4,
+    },
+  ];
+  mainChart.options.scales = {
+    x: { ticks: { color: "#98a7b8", font: { family: "Inter", size: 10 } },
+         grid: { color: "#1f2f41" } },
+    y: { ticks: { color: "#98a7b8", font: { family: "Inter", size: 10 } },
+         grid: { color: "#1f2f41" },
+         title: { display: true, text: "%", color: "#6b8299", font: { size: 10 } } }
+  };
+  mainChart.options.plugins.legend.display = true;
+  mainChart.options.plugins.legend.position = "top";
+  mainChart.update("active");
+}
+
+/* Chart tabs */
+document.getElementById("chart-tabs").addEventListener("click", e => {
+  const btn = e.target.closest("[data-chart]");
+  if (!btn) return;
+  chartMode = btn.dataset.chart;
+  document.querySelectorAll("#chart-tabs .chart-tab")
+    .forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  updateChart();
+});
+
+/* ── Run model ──────────────────────────────────── */
+document.getElementById("runBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("runBtn");
+  const st = document.getElementById("calc-status");
+  btn.disabled = true;
+  st.innerHTML = `<div class="spinner"></div> Calculating…`;
+
+  const rainfall = parseFloat(document.getElementById("rainfallInput").value) || 2200;
+  const payload = { rainfall_mm: rainfall };
+  // Keys must match LULC_NAME values in shapefile / backend HYDRO map
+  CLASSES.forEach((cls, i) => { payload[cls.key] = vals[i]; });
+
+  try {
+    const r = await fetch(`${API}/api/run`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    lastResult = await r.json();
+    setOutputCards(lastResult);
+    updateChart();
+    st.innerHTML = `<span style="color:var(--green)">✓ Done</span>`;
+  } catch {
+    st.innerHTML = `<span style="color:var(--red)">✗ Backend offline – run py backend/app.py</span>`;
+    // Demo fallback
+    const r = parseFloat(document.getElementById("rainfallInput").value) || 2200;
+    const wRunoff  = vals.reduce((a,v,i)=>a + (v/100)*[1,.12,.20,.75,.45,.80,.90,.85][i], 0);
+    const wET      = vals.reduce((a,v,i)=>a + (v/100)*[.70,.55,.38,.05,.20,.04,.03,.03][i], 0);
+    const runoff   = r * wRunoff;
+    const et       = r * wET;
+    const inf      = Math.max(0, r - runoff - et);
+    lastResult = { rainfall: r, runoff, infiltration: inf, evapotranspiration: et };
+    setOutputCards(lastResult);
+    updateChart();
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function setOutputCards(d) {
+  const r = d.rainfall;
+  const setCard = (id, val, fracId, pct, subId, sub) => {
+    const el = document.getElementById(id);
+    el.innerHTML = `${val.toFixed(1)}<span class="out-card-unit">mm</span>`;
+    el.classList.remove("roll-in");
+    void el.offsetWidth;
+    el.classList.add("roll-in");
+    document.getElementById(fracId).style.width = pct + "%";
+    if (subId) document.getElementById(subId).textContent = sub;
+  };
+  setCard("o-rainfall",           r,        "f-rainfall", 100, null, "");
+  setCard("o-runoff",             d.runoff, "f-runoff",   +(d.runoff/r*100).toFixed(1),
+          "sub-runoff", `${(d.runoff/r*100).toFixed(1)}% of rainfall`);
+  setCard("o-evapotranspiration", d.evapotranspiration, "f-et", +(d.evapotranspiration/r*100).toFixed(1),
+          "sub-et",     `${(d.evapotranspiration/r*100).toFixed(1)}% of rainfall`);
+  setCard("o-infiltration",       d.infiltration, "f-inf", +(d.infiltration/r*100).toFixed(1),
+          "sub-inf",    `${(d.infiltration/r*100).toFixed(1)}% of rainfall`);
+}
+
+/* ── Theme toggle ───────────────────────────────── */
+let isDark = true;
+document.getElementById("themeBtn").addEventListener("click", () => {
+  isDark = !isDark;
+  document.documentElement.setAttribute("data-theme", isDark ? "dark" : "light");
+  document.getElementById("themeBtn").textContent = isDark ? "🌙" : "☀️";
+  if (!isDark) {
+    document.documentElement.style.setProperty("--bg", "#f0f4f8");
+    document.documentElement.style.setProperty("--surface", "#ffffff");
+    document.documentElement.style.setProperty("--panel", "#f8fafc");
+    document.documentElement.style.setProperty("--card", "#ffffff");
+    document.documentElement.style.setProperty("--border", "#d0d9e4");
+    document.documentElement.style.setProperty("--border2", "#c0ccd8");
+    document.documentElement.style.setProperty("--ink", "#111827");
+    document.documentElement.style.setProperty("--mute", "#6b7280");
+    document.documentElement.style.setProperty("--mute2", "#4b5563");
+  } else {
+    ["--bg","--surface","--panel","--card","--border","--border2","--ink","--mute","--mute2"]
+      .forEach(v => document.documentElement.style.removeProperty(v));
+  }
+});
+
+/* ── Boot sequence ──────────────────────────────── */
+(async function boot() {
+  initMap();
+  initChart();
+  await checkBackend();
+  await loadStats();
+  // Auto-calculate on load if backend is alive
+  try {
+    const r = await fetch(`${API}/api/run`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rainfall_mm: 2200 }),
+    });
+    lastResult = await r.json();
+    setOutputCards(lastResult);
+    if (chartMode !== "donut") updateChart();
+  } catch { /* backend offline – cards stay blank */ }
+})();
+</script>
+</body>
+</html>
